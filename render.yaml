@@ -1,0 +1,13 @@
+services:
+  - type: worker
+    name: tiktok-discord-bot
+    env: docker
+    region: oregon
+    plan: free
+    dockerfilePath: ./Dockerfile
+    buildCommand: ""
+    startCommand: "npm start"
+    autoDeploy: true
+    envVars:
+      - key: TOKEN
+        sync: false
