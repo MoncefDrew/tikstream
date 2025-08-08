@@ -1,22 +1,23 @@
-# Use an official Node.js image
-FROM node:18-slim
+FROM python:3.10-slim
 
-# Install ffmpeg and streamlink
-RUN apt-get update && \
-    apt-get install -y ffmpeg streamlink && \
-    apt-get clean
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    streamlink \
+    && rm -rf /var/lib/apt/lists/*
 
-# Create app directory
+# Install Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y nodejs
+
+# Set working directory
 WORKDIR /app
 
-# Copy package.json and install dependencies
-COPY package*.json ./
-RUN npm install
-
-# Copy the rest of the project
+# Copy your app files
 COPY . .
 
-# Set environment variables from .env if using Docker Compose (Render handles this otherwise)
+# Install Node dependencies
+RUN npm install
 
-# Start the app
-CMD ["npm", "start"]
+# Start your app
+CMD ["node", "index.js"]
