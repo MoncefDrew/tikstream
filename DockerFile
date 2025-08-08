@@ -1,23 +1,21 @@
-FROM python:3.10-slim
+# Use a Node.js base image
+FROM node:18
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    streamlink \
-    && rm -rf /var/lib/apt/lists/*
+# Install streamlink
+RUN apt-get update && apt-get install -y streamlink
 
-# Install Node.js
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
-    apt-get install -y nodejs
-
-# Set working directory
+# Set the working directory
 WORKDIR /app
 
-# Copy your app files
-COPY . .
-
-# Install Node dependencies
+# Copy package.json and install dependencies
+COPY package*.json ./
 RUN npm install
 
-# Start your app
+# Copy the rest of the code
+COPY . .
+
+# Expose port (change if your app uses another)
+EXPOSE 3000
+
+# Start the app
 CMD ["node", "index.js"]
