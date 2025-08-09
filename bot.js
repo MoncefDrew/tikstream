@@ -13,32 +13,14 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const PORT = process.env.PORT || 3000;
 
 const app = express();
-let currentStreamUrl = '';
-let ffmpegProcess = null;
-let player = createAudioPlayer();
-let connection = null;
-let tiktokUrl = '';
-let isRestarting = false;
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.MessageContent,
-  ],
-  partials: [Partials.Channel],
-});
-
-client.once('ready', () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-});
-
-// Start Express server FIRST so Render detects it
+// ====== EXPRESS ENDPOINTS ======
 app.get('/', (req, res) => {
   res.send('✅ TikTok Discord Bot is running.');
 });
 
+let tiktokUrl = '';
+let currentStreamUrl = '';
 app.get('/status', (req, res) => {
   res.json({
     streaming: !!currentStreamUrl,
@@ -47,13 +29,13 @@ app.get('/status', (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`🌐 Web server running on port ${PORT}`);
-  // Start Discord bot after server is up
-  client.login(TOKEN);
-});
+// ====== DISCORD BOT VARIABLES ======
+let ffmpegProcess = null;
+let player = createAudioPlayer();
+let connection = null;
+let isRestarting = false;
 
-// Function to start streamlink and ffmpeg
+// ====== STREAM START FUNCTION ======
 function startStream() {
   if (!tiktokUrl) return;
 
@@ -81,13 +63,11 @@ function startStream() {
   });
 }
 
-// Function to start ffmpeg and play
+// ====== PLAY STREAM FUNCTION ======
 function playStream() {
   console.log(`🎧 Playing stream from: ${currentStreamUrl}`);
-  
-  if (ffmpegProcess) {
-    ffmpegProcess.kill();
-  }
+
+  if (ffmpegProcess) ffmpegProcess.kill();
 
   ffmpegProcess = spawn('ffmpeg', [
     '-re',
@@ -117,29 +97,53 @@ function playStream() {
   player.play(resource);
 }
 
-// Discord command
-client.on('messageCreate', async (message) => {
-  if (!message.content.startsWith('!playlive') || message.author.bot) return;
-
-  const voiceChannel = message.member?.voice?.channel;
-  if (!voiceChannel) return message.reply('❌ Join a voice channel first.');
-
-  const args = message.content.split(' ');
-  tiktokUrl = args[1];
-
-  if (!tiktokUrl || !tiktokUrl.startsWith('http')) {
-    return message.reply('❌ Invalid link.\nUsage: `!playlive https://www.tiktok.com/@user/live`');
-  }
-
-  connection = joinVoiceChannel({
-    channelId: voiceChannel.id,
-    guildId: message.guild.id,
-    adapterCreator: message.guild.voiceAdapterCreator,
+// ====== DISCORD BOT START FUNCTION ======
+function startBot() {
+  const client = new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.GuildVoiceStates,
+      GatewayIntentBits.MessageContent,
+    ],
+    partials: [Partials.Channel],
   });
 
-  connection.subscribe(player);
-  startStream();
+  client.once('ready', () => {
+    console.log(`✅ Logged in as ${client.user.tag}`);
+  });
 
-  message.reply(`🔊 Now streaming from: ${tiktokUrl}`);
+  client.on('messageCreate', async (message) => {
+    if (!message.content.startsWith('!playlive') || message.author.bot) return;
+
+    const voiceChannel = message.member?.voice?.channel;
+    if (!voiceChannel) return message.reply('❌ Join a voice channel first.');
+
+    const args = message.content.split(' ');
+    tiktokUrl = args[1];
+
+    if (!tiktokUrl || !tiktokUrl.startsWith('http')) {
+      return message.reply('❌ Invalid link.\nUsage: `!playlive https://www.tiktok.com/@user/live`');
+    }
+
+    connection = joinVoiceChannel({
+      channelId: voiceChannel.id,
+      guildId: message.guild.id,
+      adapterCreator: message.guild.voiceAdapterCreator,
+    });
+
+    connection.subscribe(player);
+    startStream();
+
+    message.reply(`🔊 Now streaming from: ${tiktokUrl}`);
+  });
+
+  client.login(TOKEN);
+}
+
+// ====== START EXPRESS FIRST ======
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🌐 Web server running on port ${PORT}`);
+  setTimeout(startBot, 2000); // delay so Render detects the port
 });
 
