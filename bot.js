@@ -15,14 +15,13 @@ const BASE_URL = process.env.BASE_URL;
 
 const app = express();
 
-// ====== EXPRESS ENDPOINTS ======
 app.get('/', (req, res) => {
   res.send('✅ TikTok Discord Bot is running.');
 });
 
 let tiktokUrl = '';
 let currentStreamUrl = '';
-let streamExpiry = 0; // Unix timestamp of current stream expiry
+let streamExpiry = 0;
 
 app.get('/status', (req, res) => {
   res.json({
@@ -34,13 +33,48 @@ app.get('/status', (req, res) => {
   });
 });
 
-// ====== DISCORD BOT VARIABLES ======
+// Discord + streaming state
 let ffmpegProcess = null;
 let player = createAudioPlayer();
 let connection = null;
 let isRestarting = false;
 
-// ====== HELPERS ======
+let inactivityTimeout = null; // timeout to detect stream blocks
+const INACTIVITY_LIMIT_MS = 30000; // 30 seconds no data means blocked
+
+function resetInactivityTimeout() {
+  if (inactivityTimeout) clearTimeout(inactivityTimeout);
+  inactivityTimeout = setTimeout(() => {
+    console.error('⚠️ Stream inactive for 30s. Restarting bot...');
+    restartBot();
+  }, INACTIVITY_LIMIT_MS);
+}
+
+function restartBot() {
+  console.log('🛑 Restarting bot...');
+
+  if (ffmpegProcess) {
+    ffmpegProcess.kill('SIGKILL');
+    ffmpegProcess = null;
+  }
+  currentStreamUrl = '';
+  streamExpiry = 0;
+  isRestarting = false;
+
+  if (connection) {
+    connection.destroy();
+    connection = null;
+  }
+
+  player.stop();
+
+  if (tiktokUrl) {
+    startStream();
+  } else {
+    console.log('No TikTok URL set, bot idle.');
+  }
+}
+
 function getExpiryFromUrl(url) {
   try {
     const urlObj = new URL(url);
@@ -51,14 +85,13 @@ function getExpiryFromUrl(url) {
   }
 }
 
-// ====== STREAM START FUNCTION ======
 function startStream() {
   if (!tiktokUrl) return;
 
   const now = Math.floor(Date.now() / 1000);
   if (currentStreamUrl && streamExpiry > now + 10) {
     console.log('🟢 Current stream URL still valid, no need to refresh.');
-    return; // Don't refresh if still valid for 10+ seconds
+    return;
   }
 
   console.log(`🎬 Extracting TikTok Live stream: ${tiktokUrl}`);
@@ -88,38 +121,56 @@ function startStream() {
   });
 }
 
-// ====== PLAY STREAM FUNCTION ======
 function playStream() {
   console.log(`🎧 Playing stream from: ${currentStreamUrl}`);
 
-  if (ffmpegProcess) ffmpegProcess.kill();
+  if (ffmpegProcess) {
+    console.log('Killing previous ffmpeg process');
+    ffmpegProcess.kill('SIGKILL');
+  }
 
   ffmpegProcess = spawn('ffmpeg', [
     '-re',
     '-i', currentStreamUrl,
     '-analyzeduration', '0',
-    '-loglevel', '0',
+    '-loglevel', 'quiet',
     '-f', 's16le',
     '-ar', '48000',
     '-ac', '2',
     'pipe:1',
   ]);
 
+  // Reset inactivity timer on data flow
+  ffmpegProcess.stdout.on('data', () => {
+    resetInactivityTimeout();
+  });
+
+  ffmpegProcess.stderr.on('data', (data) => {
+    console.error('FFmpeg stderr:', data.toString());
+  });
+
+  ffmpegProcess.on('error', (error) => {
+    console.error('FFmpeg error:', error);
+  });
+
+  ffmpegProcess.on('exit', (code, signal) => {
+    console.log(`FFmpeg exited with code ${code}, signal ${signal}`);
+  });
+
   ffmpegProcess.on('close', () => {
     console.log('⚠️ Stream stopped.');
+    clearTimeout(inactivityTimeout);
     if (!isRestarting) {
       isRestarting = true;
 
       const now = Math.floor(Date.now() / 1000);
       if (streamExpiry > now + 10) {
-        // Stream ended early but URL not expired
         console.log('Stream ended early, refreshing stream URL in 10s...');
         setTimeout(() => {
           isRestarting = false;
           startStream();
         }, 10000);
       } else {
-        // URL expired normally, refresh immediately
         console.log('Stream URL expired, refreshing stream URL...');
         setTimeout(() => {
           isRestarting = false;
@@ -133,9 +184,10 @@ function playStream() {
     inputType: StreamType.Raw,
   });
   player.play(resource);
+
+  resetInactivityTimeout();
 }
 
-// ====== DISCORD BOT START FUNCTION ======
 function startBot() {
   const client = new Client({
     intents: [
@@ -179,9 +231,8 @@ function startBot() {
   client.login(TOKEN);
 }
 
-// ====== START EXPRESS SERVER ======
 app.listen(PORT, BASE_URL, () => {
   console.log(`🌐 Web server running on port ${PORT}`);
-  setTimeout(startBot, 2000); // delay so Render detects the port
+  setTimeout(startBot, 2000);
 });
 
