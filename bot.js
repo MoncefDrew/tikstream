@@ -10,7 +10,8 @@ const {
 const { spawn } = require('child_process');
 
 const TOKEN = process.env.DISCORD_TOKEN;
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 10000;
+const BASE_URL = process.env.BASE_URL;
 
 const app = express();
 
@@ -21,11 +22,15 @@ app.get('/', (req, res) => {
 
 let tiktokUrl = '';
 let currentStreamUrl = '';
+let streamExpiry = 0; // Unix timestamp of current stream expiry
+
 app.get('/status', (req, res) => {
   res.json({
     streaming: !!currentStreamUrl,
     tiktokUrl,
     currentStreamUrl,
+    streamExpiry,
+    now: Math.floor(Date.now() / 1000),
   });
 });
 
@@ -35,9 +40,26 @@ let player = createAudioPlayer();
 let connection = null;
 let isRestarting = false;
 
+// ====== HELPERS ======
+function getExpiryFromUrl(url) {
+  try {
+    const urlObj = new URL(url);
+    const expiresParam = urlObj.searchParams.get('expires');
+    return expiresParam ? Number(expiresParam) : 0;
+  } catch {
+    return 0;
+  }
+}
+
 // ====== STREAM START FUNCTION ======
 function startStream() {
   if (!tiktokUrl) return;
+
+  const now = Math.floor(Date.now() / 1000);
+  if (currentStreamUrl && streamExpiry > now + 10) {
+    console.log('🟢 Current stream URL still valid, no need to refresh.');
+    return; // Don't refresh if still valid for 10+ seconds
+  }
 
   console.log(`🎬 Extracting TikTok Live stream: ${tiktokUrl}`);
   const streamlink = spawn('streamlink', ['--stream-url', tiktokUrl, 'best']);
@@ -55,6 +77,9 @@ function startStream() {
     }
 
     currentStreamUrl = streamUrlBuffer;
+    streamExpiry = getExpiryFromUrl(currentStreamUrl);
+    console.log(`⏰ Stream URL expires at Unix timestamp: ${streamExpiry}`);
+
     playStream();
   });
 
@@ -81,13 +106,26 @@ function playStream() {
   ]);
 
   ffmpegProcess.on('close', () => {
-    console.log('⚠️ Stream stopped. Restarting in 10s...');
+    console.log('⚠️ Stream stopped.');
     if (!isRestarting) {
       isRestarting = true;
-      setTimeout(() => {
-        isRestarting = false;
-        startStream();
-      }, 10000);
+
+      const now = Math.floor(Date.now() / 1000);
+      if (streamExpiry > now + 10) {
+        // Stream ended early but URL not expired
+        console.log('Stream ended early, refreshing stream URL in 10s...');
+        setTimeout(() => {
+          isRestarting = false;
+          startStream();
+        }, 10000);
+      } else {
+        // URL expired normally, refresh immediately
+        console.log('Stream URL expired, refreshing stream URL...');
+        setTimeout(() => {
+          isRestarting = false;
+          startStream();
+        }, 1000);
+      }
     }
   });
 
@@ -141,8 +179,8 @@ function startBot() {
   client.login(TOKEN);
 }
 
-// ====== START EXPRESS FIRST ======
-app.listen(PORT, '0.0.0.0', () => {
+// ====== START EXPRESS SERVER ======
+app.listen(PORT, BASE_URL, () => {
   console.log(`🌐 Web server running on port ${PORT}`);
   setTimeout(startBot, 2000); // delay so Render detects the port
 });

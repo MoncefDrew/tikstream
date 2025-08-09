@@ -18,7 +18,7 @@ RUN npm install
 COPY . .
 
 # Expose port if needed
-EXPOSE 3000
+EXPOSE 10000 
 
 # Start the bot
 CMD ["node", "bot.js"]
