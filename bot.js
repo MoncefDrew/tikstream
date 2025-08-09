@@ -10,7 +10,7 @@ const {
 const { spawn } = require('child_process');
 
 const TOKEN = process.env.DISCORD_TOKEN;
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT;
 
 const app = express();
 
