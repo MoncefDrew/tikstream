@@ -34,6 +34,25 @@ client.once('ready', () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 });
 
+// Start Express server FIRST so Render detects it
+app.get('/', (req, res) => {
+  res.send('✅ TikTok Discord Bot is running.');
+});
+
+app.get('/status', (req, res) => {
+  res.json({
+    streaming: !!currentStreamUrl,
+    tiktokUrl,
+    currentStreamUrl,
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`🌐 Web server running on port ${PORT}`);
+  // Start Discord bot after server is up
+  client.login(TOKEN);
+});
+
 // Function to start streamlink and ffmpeg
 function startStream() {
   if (!tiktokUrl) return;
@@ -124,19 +143,3 @@ client.on('messageCreate', async (message) => {
   message.reply(`🔊 Now streaming from: ${tiktokUrl}`);
 });
 
-// Express server routes
-app.get('/', (req, res) => {
-  res.send('✅ TikTok Discord Bot is running.');
-});
-
-app.get('/status', (req, res) => {
-  res.json({
-    streaming: !!currentStreamUrl,
-    tiktokUrl,
-    currentStreamUrl,
-  });
-});
-
-client.login(TOKEN);
-app.listen(PORT, () => console.log(`🌐 Server running on port ${PORT}`));
-client.login(TOKEN);
